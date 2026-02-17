@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Respiratory Health AI",
+    "slug": "air-quality-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#667eea",
+      "resizeMode": "contain"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.airquality.respiratoryhealth"
+    },
+    "android": {
+      "package": "com.airquality.respiratoryhealth",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Respiratory Health AI to use your location to fetch air quality data."
+        }
+      ]
+    ]
+  }
+}

@@ -1,0 +1,588 @@
+{% extends 'base.html' %}
+
+{% block title %}Prediction History - LungAI Predict{% endblock %}
+
+{% block content %}
+<style>
+    .history-card {
+        transition: all 0.3s ease;
+        border: none;
+        border-radius: 15px;
+        overflow: hidden;
+        margin-bottom: 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    
+    .history-card-header {
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        padding: 25px;
+    }
+    
+    .history-card-body {
+        background: white;
+        padding: 0;
+    }
+    
+    .record-card {
+        background: white;
+        border-radius: 15px;
+        padding: 25px;
+        margin-bottom: 20px;
+        border: 2px solid #e9ecef;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .record-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 6px;
+        height: 100%;
+        background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+    }
+    
+    .record-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 30px rgba(102, 126, 234, 0.2);
+        border-color: #667eea;
+    }
+    
+    .risk-badge-custom {
+        padding: 8px 20px;
+        border-radius: 50px;
+        font-weight: 600;
+        font-size: 0.9rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .risk-high {
+        background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+        color: white;
+    }
+    
+    .risk-moderate {
+        background: linear-gradient(135deg, #ffd93d 0%, #ff9800 100%);
+        color: #333;
+    }
+    
+    .risk-low {
+        background: linear-gradient(135deg, #6bcf7f 0%, #51cf66 100%);
+        color: white;
+    }
+    
+    .info-box {
+        background: #f8f9fa;
+        border-radius: 12px;
+        padding: 15px;
+        margin-bottom: 15px;
+        border-left: 4px solid #667eea;
+    }
+    
+    .info-label {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #6c757d;
+        font-weight: 600;
+        margin-bottom: 5px;
+    }
+    
+    .info-value {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #2d3748;
+    }
+    
+    .aqi-indicator {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        font-weight: bold;
+        color: white;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        margin: 0 auto;
+    }
+    
+    .aqi-value {
+        font-size: 1.8rem;
+        line-height: 1;
+    }
+    
+    .aqi-label {
+        font-size: 0.7rem;
+        margin-top: 2px;
+    }
+    
+    .spirometry-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+    }
+    
+    .filter-btn {
+        padding: 10px 20px;
+        border-radius: 25px;
+        border: 2px solid #e9ecef;
+        background: white;
+        margin-right: 10px;
+        transition: all 0.3s ease;
+        cursor: pointer;
+    }
+    
+    .filter-btn:hover, .filter-btn.active {
+        border-color: #667eea;
+        background: #667eea;
+        color: white;
+        transform: translateY(-2px);
+    }
+    
+    .stats-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 15px;
+        padding: 20px;
+        text-align: center;
+        height: 100%;
+    }
+    
+    .stats-number {
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin: 10px 0;
+    }
+    
+    .stats-label {
+        font-size: 0.9rem;
+        opacity: 0.9;
+    }
+    
+    .recommendation-box {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        color: white;
+        border-radius: 12px;
+        padding: 20px;
+        margin-top: 15px;
+    }
+    
+    .recommendation-text {
+        font-size: 0.95rem;
+        line-height: 1.6;
+        margin: 0;
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 80px 20px;
+    }
+    
+    .empty-icon {
+        font-size: 5rem;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 20px;
+    }
+    
+    .action-btn {
+        border-radius: 25px;
+        padding: 10px 20px;
+        transition: all 0.3s ease;
+    }
+    
+    .action-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    }
+    
+    .detail-modal {
+        display: none;
+        position: fixed;
+        z-index: 1050;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background-color: rgba(0,0,0,0.5);
+    }
+    
+    .modal-content-custom {
+        background-color: white;
+        margin: 50px auto;
+        padding: 0;
+        border-radius: 15px;
+        width: 90%;
+        max-width: 800px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        animation: slideDown 0.3s ease;
+    }
+    
+    @keyframes slideDown {
+        from {
+            transform: translateY(-50px);
+            opacity: 0;
+        }
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+    
+    .modal-header-custom {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 25px;
+        border-radius: 15px 15px 0 0;
+    }
+    
+    .close-modal {
+        color: white;
+        float: right;
+        font-size: 28px;
+        font-weight: bold;
+        cursor: pointer;
+        line-height: 1;
+    }
+    
+    .close-modal:hover {
+        opacity: 0.8;
+    }
+</style>
+
+<div class="container-fluid py-4">
+    <!-- Header Section -->
+    <div class="history-card shadow-lg">
+        <div class="history-card-header">
+            <div class="row align-items-center">
+                <div class="col-md-6">
+                    <h2 class="mb-0 text-white">
+                        <i class="fas fa-history me-3"></i>Prediction History
+                    </h2>
+                    <p class="mb-0 mt-2 text-white-50">
+                        <i class="fas fa-chart-line me-2"></i>Track your respiratory health journey
+                    </p>
+                </div>
+                <div class="col-md-6 text-end">
+                    <a href="{{ url_for('predict') }}" class="btn btn-light btn-lg action-btn">
+                        <i class="fas fa-plus-circle me-2"></i>New Prediction
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="history-card-body p-4">
+            {% if records %}
+            <!-- Statistics Overview -->
+            <div class="row mb-4">
+                <div class="col-md-4 mb-3">
+                    <div class="stats-card">
+                        <i class="fas fa-clipboard-list fa-2x mb-2"></i>
+                        <div class="stats-number">{{ records|length }}</div>
+                        <div class="stats-label">Total Predictions</div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <div class="stats-card">
+                        <i class="fas fa-user-check fa-2x mb-2"></i>
+                        <div class="stats-number">{{ records|map(attribute=1)|unique|list|length }}</div>
+                        <div class="stats-label">Patients Tracked</div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <div class="stats-card">
+                        <i class="fas fa-calendar-alt fa-2x mb-2"></i>
+                        <div class="stats-number">{{ records[0][9][:10] if records else 'N/A' }}</div>
+                        <div class="stats-label">Last Assessment</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Filter Buttons -->
+            <div class="mb-4">
+                <button class="filter-btn active" onclick="filterRecords('all')">
+                    <i class="fas fa-list me-2"></i>All Records
+                </button>
+                <button class="filter-btn" onclick="filterRecords('high')">
+                    <i class="fas fa-exclamation-triangle me-2"></i>High Risk
+                </button>
+                <button class="filter-btn" onclick="filterRecords('moderate')">
+                    <i class="fas fa-exclamation-circle me-2"></i>Moderate
+                </button>
+                <button class="filter-btn" onclick="filterRecords('low')">
+                    <i class="fas fa-check-circle me-2"></i>Low Risk
+                </button>
+            </div>
+            
+            <!-- Records Grid -->
+            <div class="row" id="recordsContainer">
+                {% for r in records %}
+                <div class="col-12 record-item" data-risk="{{ r[8]|lower }}">
+                    <div class="record-card">
+                        <div class="row">
+                            <!-- Left Column - Patient Info -->
+                            <div class="col-md-3">
+                                <div class="d-flex align-items-start mb-3">
+                                    <div class="spirometry-icon me-3">
+                                        <i class="fas fa-user-md"></i>
+                                    </div>
+                                    <div>
+                                        <div class="info-label">Patient Name</div>
+                                        <div class="info-value">{{ r[1] }}</div>
+                                    </div>
+                                </div>
+                                <div class="info-box">
+                                    <div class="info-label">
+                                        <i class="fas fa-calendar me-1"></i>Assessment Date
+                                    </div>
+                                    <div class="info-value" style="font-size: 0.9rem;">
+                                        {{ r[9][:10] }}<br>
+                                        <small class="text-muted">{{ r[9][11:16] }}</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Middle Column - Prediction & AQI -->
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <div class="info-label">Risk Assessment</div>
+                                    <div class="mt-2 mb-3">
+                                        <span class="risk-badge-custom {{ 'risk-high' if r[8] == 'High' else 'risk-moderate' if r[8] in ['Moderate', 'Medium', 'Low-Moderate'] else 'risk-low' }}">
+                                            <i class="fas {{ 'fa-exclamation-triangle' if r[8] == 'High' else 'fa-exclamation-circle' if r[8] in ['Moderate', 'Medium'] else 'fa-check-circle' }}"></i>
+                                            {{ r[8] }} Risk
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <div class="info-label text-center">
+                                        <i class="fas fa-wind me-1"></i>Air Quality Index
+                                    </div>
+                                    <div class="aqi-indicator mt-2" style="background-color: {{ '#00e400' if r[6] <= 50 else '#ffff00' if r[6] <= 100 else '#ff7e00' if r[6] <= 150 else '#ff0000' if r[6] <= 200 else '#8f3f97' if r[6] <= 300 else '#7e0023' }}">
+                                        <div class="aqi-value">{{ r[6]|int }}</div>
+                                        <div class="aqi-label">{{ r[7] }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Right Column - Spirometry Data -->
+                            <div class="col-md-4">
+                                <div class="info-label mb-2">
+                                    <i class="fas fa-lungs me-1"></i>Lung Function Tests
+                                </div>
+                                <div class="row g-2">
+                                    <div class="col-6">
+                                        <div class="info-box mb-2">
+                                            <div class="info-label">FEV1</div>
+                                            <div class="info-value" style="font-size: 1rem; color: #667eea;">
+                                                {{ "%.2f"|format(r[3]|float) if r[3] else 'N/A' }} L
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="info-box mb-2">
+                                            <div class="info-label">FVC</div>
+                                            <div class="info-value" style="font-size: 1rem; color: #667eea;">
+                                                {{ "%.2f"|format(r[4]|float) if r[4] else 'N/A' }} L
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="info-box">
+                                    <div class="info-label">ML Prediction</div>
+                                    <div class="info-value" style="font-size: 0.95rem; color: {{ r[5] }};">
+                                        <i class="fas {{ 'fa-exclamation-circle' if 'Risk' in (r[2] or '') else 'fa-check-circle' }} me-1"></i>
+                                        {{ r[2] or 'N/A' }}
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Action Column -->
+                            <div class="col-md-2 text-end">
+                                <button class="btn btn-primary action-btn w-100 mb-2" onclick="viewDetails({{ r[0] }}, '{{ r[1] }}', '{{ r[8] }}', '{{ r[2] }}', {{ r[6] }}, '{{ r[7] }}', '{{ r[9] }}', {{ r[3] or 0 }}, {{ r[4] or 0 }})">
+                                    <i class="fas fa-eye me-2"></i>View Details
+                                </button>
+                                <button class="btn btn-outline-secondary action-btn w-100" onclick="downloadReport({{ r[0] }})">
+                                    <i class="fas fa-download me-2"></i>Export
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Recommendation Section -->
+                        {% if r[10] %}
+                        <div class="recommendation-box mt-3">
+                            <div class="d-flex align-items-start">
+                                <i class="fas fa-robot fa-2x me-3"></i>
+                                <div>
+                                    <strong>AI Health Recommendation:</strong>
+                                    <p class="recommendation-text mt-2">{{ r[10] }}</p>
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            
+            {% else %}
+            <!-- Empty State -->
+            <div class="empty-state">
+                <div class="empty-icon">
+                    <i class="fas fa-clipboard-list"></i>
+                </div>
+                <h3 class="mb-3">No Prediction History Yet</h3>
+                <p class="text-muted mb-4">
+                    Start tracking your respiratory health by creating your first AI-powered prediction.<br>
+                    Your prediction history will appear here with detailed insights and recommendations.
+                </p>
+                <a class="btn btn-primary btn-lg action-btn" href="{{ url_for('predict') }}">
+                    <i class="fas fa-brain me-2"></i>Make Your First Prediction
+                </a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Detail Modal -->
+<div id="detailModal" class="detail-modal">
+    <div class="modal-content-custom">
+        <div class="modal-header-custom">
+            <span class="close-modal" onclick="closeModal()">&times;</span>
+            <h3 class="mb-0">
+                <i class="fas fa-file-medical-alt me-2"></i>Detailed Assessment Report
+            </h3>
+        </div>
+        <div class="p-4" id="modalBody">
+            <!-- Content will be populated by JavaScript -->
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterRecords(type) {
+    const items = document.querySelectorAll('.record-item');
+    const buttons = document.querySelectorAll('.filter-btn');
+    
+    // Update active button
+    buttons.forEach(btn => btn.classList.remove('active'));
+    event.target.closest('.filter-btn').classList.add('active');
+    
+    // Filter records
+    items.forEach(item => {
+        const risk = item.dataset.risk;
+        if (type === 'all') {
+            item.style.display = 'block';
+        } else if (type === 'high' && risk === 'high') {
+            item.style.display = 'block';
+        } else if (type === 'moderate' && (risk === 'moderate' || risk === 'medium' || risk === 'low-moderate')) {
+            item.style.display = 'block';
+        } else if (type === 'low' && risk === 'low') {
+            item.style.display = 'block';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+function viewDetails(id, name, risk, prediction, aqi, aqiCat, date, fev1, fvc) {
+    const modal = document.getElementById('detailModal');
+    const modalBody = document.getElementById('modalBody');
+    
+    const riskColor = risk === 'High' ? '#ff6b6b' : risk.includes('Moderate') || risk.includes('Medium') ? '#ff9800' : '#51cf66';
+    const aqiColor = aqi <= 50 ? '#00e400' : aqi <= 100 ? '#ffff00' : aqi <= 150 ? '#ff7e00' : aqi <= 200 ? '#ff0000' : '#8f3f97';
+    
+    modalBody.innerHTML = `
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="info-box">
+                    <div class="info-label">Patient Name</div>
+                    <div class="info-value">${name}</div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="info-box">
+                    <div class="info-label">Assessment Date</div>
+                    <div class="info-value">${date}</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div style="background: ${riskColor}; color: white; padding: 20px; border-radius: 12px; text-align: center;">
+                    <i class="fas fa-exclamation-triangle fa-3x mb-3"></i>
+                    <h4>Risk Level: ${risk}</h4>
+                    <p class="mb-0">${prediction}</p>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div style="background: ${aqiColor}; color: white; padding: 20px; border-radius: 12px; text-align: center;">
+                    <i class="fas fa-wind fa-3x mb-3"></i>
+                    <h4>AQI: ${aqi}</h4>
+                    <p class="mb-0">${aqiCat}</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="info-box">
+            <h5 class="mb-3"><i class="fas fa-lungs me-2"></i>Spirometry Results</h5>
+            <div class="row">
+                <div class="col-md-6">
+                    <strong>FEV1 (Forced Expiratory Volume):</strong> ${fev1.toFixed(2)} L
+                </div>
+                <div class="col-md-6">
+                    <strong>FVC (Forced Vital Capacity):</strong> ${fvc.toFixed(2)} L
+                </div>
+            </div>
+        </div>
+        
+        <div class="text-center mt-4">
+            <button class="btn btn-primary action-btn me-2" onclick="closeModal()">
+                <i class="fas fa-check me-2"></i>Close
+            </button>
+            <button class="btn btn-outline-primary action-btn" onclick="downloadReport(${id})">
+                <i class="fas fa-download me-2"></i>Download Report
+            </button>
+        </div>
+    `;
+    
+    modal.style.display = 'block';
+}
+
+function closeModal() {
+    document.getElementById('detailModal').style.display = 'none';
+}
+
+function downloadReport(recordId) {
+    alert('📄 Downloading detailed PDF report for Record #' + recordId + '\\n\\nThis feature will generate a comprehensive PDF with:\\n• Patient information\\n• Lung function analysis\\n• Air quality data\\n• AI recommendations\\n• Treatment suggestions');
+}
+
+// Close modal when clicking outside
+window.onclick = function(event) {
+    const modal = document.getElementById('detailModal');
+    if (event.target == modal) {
+        modal.style.display = 'none';
+    }
+}
+</script>
+{% endblock %}

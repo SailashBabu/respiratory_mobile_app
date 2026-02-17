@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Predict - Spirometry & AQI Analysis</title>
+
+  <!-- Bootstrap & Font Awesome -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet"/>
+
+  <style>
+    body { background-color: #f8f9fa; }
+    .navbar { box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .card { border-radius: 15px; border: none; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+    .feature-section { padding: 20px; background: #ffffff; border-radius: 10px; margin-bottom: 20px; }
+    .form-control, .form-select { border-radius: 10px; border: 1px solid #e9ecef; padding: 10px 12px; }
+    .btn-primary { background: linear-gradient(135deg,#667eea 0%,#764ba2 100%); border: none; }
+  </style>
+</head>
+<body>
+  <!-- Navigation Bar -->
+  <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <div class="container">
+      <a class="navbar-brand" href="{{ url_for('predict') }}">
+        <i class="fas fa-lungs me-2"></i> Spirometry & AQI Analysis
+      </a>
+
+      <div class="d-flex align-items-center ms-auto">
+        <span class="navbar-text me-3 text-white">
+          <i class="fas fa-user"></i>
+          {{ session.get('full_name', session.get('username', 'User')) }}
+        </span>
+        <a class="nav-link text-white me-2" href="{{ url_for('history') }}"><i class="fas fa-history"></i> History</a>
+        <a class="nav-link text-white" href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt"></i> Logout</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container my-4">
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="mb-3">
+          {% for category, msg in messages %}
+            {% set alert_class = 'danger' if category == 'error' else ('info' if category == 'info' else 'success') %}
+            <div class="alert alert-{{ alert_class }} alert-dismissible fade show">
+              {{ msg }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <!-- Prediction result (if present) -->
+    {% if prediction_result and prediction_result.success %}
+      <div class="card shadow mb-4">
+        <div class="card-header bg-success text-white">
+          <h5 class="mb-0"><i class="fas fa-check-circle"></i> Analysis Successful!</h5>
+        </div>
+        <div class="card-body">
+          <div class="row gy-3">
+            <div class="col-md-6">
+              <h6><i class="fas fa-cloud me-1"></i> AQI</h6>
+              <h4 style="color: {{ prediction_result.aqi_color }}">{{ prediction_result.aqi_value }} ({{ prediction_result.aqi_category }})</h4>
+              <p class="mb-0"><strong>Primary Pollutant:</strong> {{ prediction_result.primary_pollutant }}</p>
+              <!-- ML asthma UI intentionally removed per user request; ML outputs are not shown on this page -->
+            </div>
+            <div class="col-md-6">
+              <h6><i class="fas fa-lungs me-1"></i> Spirometry</h6>
+              <p class="mb-0"><strong>FEV1:</strong> {{ prediction_result.fev1 }} L</p>
+              <p class="mb-0"><strong>FVC:</strong> {{ prediction_result.fvc }} L</p>
+              <p class="mb-0"><strong>FEV1/FVC:</strong> {{ prediction_result.ratio }}</p>
+              <p class="mb-0"><strong>PEFR:</strong> {{ prediction_result.pefr }} L/min</p>
+            </div>
+          </div>
+
+          <div class="mt-3">
+            <p><strong>Patient:</strong> {{ prediction_result.patient_name }}</p>
+            <p><strong>Recommendation:</strong> {{ prediction_result.recommendation }}</p>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="row">
+      <!-- Left side: controls -->
+      <div class="col-lg-3">
+        <div class="card shadow mb-4">
+          <div class="card-header bg-info text-white">
+            <h5 class="mb-0"><i class="fas fa-cogs"></i> Feature Groups</h5>
+          </div>
+          <div class="card-body">
+            <form id="featureForm" method="GET" action="{{ url_for('predict') }}">
+              <label class="form-label">Select Feature Groups:</label>
+              {% set groups = ['Demographics', 'Lifestyle', 'Air Pollution', 'Environment', 'Spirometry'] %}
+              {% for g in groups %}
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" name="feature_groups" value="{{ g }}" id="{{ g | replace(' ', '_') }}"
+                    {% if (feature_groups is defined and (g in feature_groups)) or (feature_groups is not defined and g in ['Demographics','Lifestyle','Spirometry']) %}checked{% endif %}>
+                  <label class="form-check-label" for="{{ g | replace(' ', '_') }}">{{ g }}</label>
+                </div>
+              {% endfor %}
+              <button type="submit" class="btn btn-info w-100 mt-3"><i class="fas fa-sync"></i> Update Form</button>
+            </form>
+
+            <hr/>
+
+            <div class="mb-3">
+              <label for="patient_name" class="form-label">Patient Name</label>
+              <input type="text" class="form-control" id="patient_name" name="patient_name" value="{{ current_patient_name }}" readonly>
+              <small class="text-muted">Auto-generated patient name</small>
+            </div>
+
+            <hr/>
+
+            <div class="mb-3">
+              <label class="form-label">Latitude</label>
+              <input type="number" step="0.0001" id="lat" class="form-control" placeholder="e.g. 12.9716">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Longitude</label>
+              <input type="number" step="0.0001" id="lon" class="form-control" placeholder="e.g. 77.5946">
+            </div>
+            <div class="d-flex gap-2">
+              <button type="button" id="autoLocBtn" class="btn btn-outline-primary" onclick="toggleAutoLocation()">Start Auto-Location</button>
+              <button type="button" id="getLocNowBtn" class="btn btn-outline-secondary" onclick="fetchAndUpdateWithGeolocation()">Get Location Now</button>
+              <button type="button" class="btn btn-warning" onclick="autoFetchPollution()">
+                <i class="fas fa-cloud"></i> Auto-Fetch Pollution
+              </button>
+            </div>
+            <small class="text-muted d-block mt-2" id="autoLocStatus">Enter lat & lon, or use Get Location Now / Start Auto-Location.</small>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right side: form -->
+      <div class="col-lg-9">
+        <div class="card shadow">
+          <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="fas fa-edit"></i> Provide Feature Values</h5>
+          </div>
+          <div class="card-body">
+            <form method="POST" id="mainForm" action="{{ url_for('predict') }}">
+              <!-- Hidden fields for selected feature_groups -->
+              {% if feature_groups is defined %}
+                {% for fg in feature_groups %}
+                  <input type="hidden" name="feature_groups" value="{{ fg }}">
+                {% endfor %}
+              {% else %}
+                <input type="hidden" name="feature_groups" value="Demographics">
+                <input type="hidden" name="feature_groups" value="Lifestyle">
+                <input type="hidden" name="feature_groups" value="Spirometry">
+              {% endif %}
+
+              <!-- Demographics -->
+              {% if (feature_groups is not defined) or ('Demographics' in feature_groups) %}
+                <div id="demographics-section" class="feature-section">
+                  <h5 class="text-primary mb-3"><i class="fas fa-users"></i> Demographics</h5>
+                  <div class="row">
+                    <div class="col-md-4">
+                      <label class="form-label">Age</label>
+                      <input type="number" class="form-control" id="age" name="age" min="18" max="100" value="35">
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label">Gender</label>
+                      <select class="form-select" id="gender" name="gender">
+                        <option>Male</option>
+                        <option>Female</option>
+                      </select>
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label">Location</label>
+                      <select class="form-select" id="location" name="location">
+                        <option>Urban</option>
+                        <option>Rural</option>
+                        <option>Semi-Urban</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              {% endif %}
+
+              <!-- Lifestyle -->
+              {% if (feature_groups is not defined) or ('Lifestyle' in feature_groups) %}
+                <div id="lifestyle-section" class="feature-section">
+                  <h5 class="text-success mb-3"><i class="fas fa-heartbeat"></i> Lifestyle</h5>
+                  <div class="row">
+                    <div class="col-md-6">
+                      <label class="form-label">Smoking Status</label>
+                      <select class="form-select" id="smoking_status" name="smoking_status">
+                        <option>Non-smoker</option>
+                        <option>Former smoker</option>
+                        <option>Current smoker</option>
+                      </select>
+                      <label class="form-label mt-3">Physical Activity</label>
+                      <select class="form-select" id="physical_activity" name="physical_activity">
+                        <option>Low</option>
+                        <option selected>Moderate</option>
+                        <option>High</option>
+                      </select>
+                    </div>
+
+                    <div class="col-md-6">
+                      <label class="form-label">Occupation</label>
+                      <select class="form-select" id="occupation" name="occupation">
+                        <option>Office</option>
+                        <option>Labor</option>
+                        <option>Industrial</option>
+                        <option>Agricultural</option>
+                      </select>
+                      <label class="form-label mt-3">Diet</label>
+                      <select class="form-select" id="diet" name="diet">
+                        <option>Balanced</option>
+                        <option>Poor</option>
+                        <option>Rich in fruits</option>
+                        <option>High fat</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              {% endif %}
+
+              <!-- Air Pollution -->
+              {% if (feature_groups is not defined) or ('Air Pollution' in feature_groups) %}
+                <div id="air-pollution-section" class="feature-section">
+                  <h5 class="text-warning mb-3"><i class="fas fa-smog"></i> Air Pollution</h5>
+                  <div class="row">
+                    <div class="col-md-6">
+                      <label class="form-label">PM2.5</label>
+                      <input type="number" step="0.1" class="form-control" id="pm2_5" name="pm2_5" min="0" max="500" value="50.0">
+                      <label class="form-label mt-3">PM10</label>
+                      <input type="number" step="0.1" class="form-control" id="pm10" name="pm10" min="0" max="500" value="80.0">
+                      <label class="form-label mt-3">NO2</label>
+                      <input type="number" step="0.1" class="form-control" id="no2" name="no2" min="0" max="200" value="30.0">
+                    </div>
+
+                    <div class="col-md-6">
+                      <label class="form-label">SO2</label>
+                      <input type="number" step="0.1" class="form-control" id="so2" name="so2" min="0" max="100" value="10.0">
+                      <label class="form-label mt-3">CO</label>
+                      <input type="number" step="0.1" class="form-control" id="co" name="co" min="0" max="10" value="1.0">
+                      <label class="form-label mt-3">Ozone (O3)</label>
+                      <input type="number" step="0.1" class="form-control" id="ozone" name="ozone" min="0" max="200" value="40.0">
+                    </div>
+                  </div>
+                </div>
+              {% endif %}
+
+              <!-- Environment -->
+              {% if (feature_groups is not defined) or ('Environment' in feature_groups) %}
+                <div id="environment-section" class="feature-section">
+                  <h5 class="text-info mb-3"><i class="fas fa-tree"></i> Environment</h5>
+                  <div class="row">
+                    <div class="col-md-4">
+                      <label class="form-label">Dust</label>
+                      <input type="number" step="0.1" class="form-control" id="dust" name="dust" value="60.0">
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label">Pollen</label>
+                      <input type="number" step="0.1" class="form-control" id="pollen" name="pollen" value="40.0">
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label">Indoor Pollutants</label>
+                      <input type="number" step="0.1" class="form-control" id="indoor_pollutants" name="indoor_pollutants" value="5.0">
+                    </div>
+                  </div>
+                </div>
+              {% endif %}
+
+              <!-- Spirometry inputs removed: spirometry will be estimated server-side from pollution and demographics -->
+              <!-- Spirometry: allow manual input or AI estimation -->
+              {% if (feature_groups is not defined) or ('Spirometry' in feature_groups) %}
+                <div id="spirometry-section" class="feature-section">
+                  <h5 class="text-primary mb-3"><i class="fas fa-procedures"></i> Spirometry</h5>
+                  <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="use_manual_spirometry" name="use_manual_spirometry">
+                    <label class="form-check-label" for="use_manual_spirometry">Provide manual spirometry values (turn on to enter FEV1/FVC/PEFR)</label>
+                  </div>
+
+                  <div id="manual-spirometry-fields" style="display:none;">
+                    <div class="row">
+                      <div class="col-md-4 mb-2">
+                        <label class="form-label">FEV1 (L)</label>
+                        <input type="number" step="0.01" class="form-control" id="fev1" name="fev1" placeholder="e.g. 2.5">
+                      </div>
+                      <div class="col-md-4 mb-2">
+                        <label class="form-label">FVC (L)</label>
+                        <input type="number" step="0.01" class="form-control" id="fvc" name="fvc" placeholder="e.g. 3.2">
+                      </div>
+                      <div class="col-md-4 mb-2">
+                        <label class="form-label">PEFR (L/min)</label>
+                        <input type="number" step="1" class="form-control" id="pefr" name="pefr" placeholder="e.g. 400">
+                      </div>
+                    </div>
+                    <div class="mt-2">FEV1/FVC ratio: <span id="fev1_fvc_ratio_display">0.00</span>
+                      <input type="hidden" id="fev1_fvc_ratio" name="fev1_fvc_ratio" value="0.00">
+                    </div>
+                  </div>
+                </div>
+              {% endif %}
+
+              <div class="mb-3">
+                <label class="form-label">Patient Name</label>
+                <input type="text" class="form-control" id="patient_name_input" name="patient_name" value="{{ current_patient_name }}">
+              </div>
+
+              <button type="submit" class="btn btn-success w-100 mt-3"><i class="fas fa-bolt"></i> Run Analysis</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Injected pollution from server (if any) -->
+  <script>
+    // Server injects `pollution` dict as JSON when rendering (or null)
+    const serverPollution = {{ pollution | tojson | default('null') }};
+  </script>
+
+  <script>
+    // Auto-fill pollution fields if server provided them
+    document.addEventListener('DOMContentLoaded', () => {
+      // Populate fields with server data if available
+      if (serverPollution) {
+        if (document.getElementById('pm2_5')) document.getElementById('pm2_5').value = serverPollution.pm2_5 ?? document.getElementById('pm2_5').value;
+        if (document.getElementById('pm10')) document.getElementById('pm10').value = serverPollution.pm10 ?? document.getElementById('pm10').value;
+        if (document.getElementById('so2')) document.getElementById('so2').value = serverPollution.so2 ?? document.getElementById('so2').value;
+        if (document.getElementById('co')) document.getElementById('co').value = serverPollution.co ?? document.getElementById('co').value;
+        if (document.getElementById('no2')) document.getElementById('no2').value = serverPollution.no2 ?? document.getElementById('no2').value;
+        if (document.getElementById('ozone')) document.getElementById('ozone').value = serverPollution.ozone ?? document.getElementById('ozone').value;
+      }
+
+      // FEV1/FVC ratio calc and manual spirometry toggle
+      const fev1El = document.getElementById('fev1');
+      const fvcEl = document.getElementById('fvc');
+      const ratioDisplay = document.getElementById('fev1_fvc_ratio_display');
+      const ratioHidden = document.getElementById('fev1_fvc_ratio');
+      const pefrEl = document.getElementById('pefr');
+      const manualFields = document.getElementById('manual-spirometry-fields');
+      const useManualChk = document.getElementById('use_manual_spirometry');
+
+      function calcRatio() {
+        const fev1 = parseFloat(fev1El?.value || 0);
+        const fvc = parseFloat(fvcEl?.value || 0);
+        if (fvc > 0) {
+          const ratio = fev1 / fvc;
+          const r = Number.isFinite(ratio) ? ratio : 0;
+          if (ratioDisplay) ratioDisplay.textContent = r.toFixed(2);
+          if (ratioHidden) ratioHidden.value = r.toFixed(2);
+
+          if (ratioDisplay) {
+            if (r >= 0.75) ratioDisplay.style.color = '#28a745';
+            else if (r >= 0.70) ratioDisplay.style.color = '#fd7e14';
+            else if (r >= 0.60) ratioDisplay.style.color = '#dc3545';
+            else ratioDisplay.style.color = '#721c24';
+          }
+        } else {
+          if (ratioDisplay) ratioDisplay.textContent = '0.00';
+          if (ratioHidden) ratioHidden.value = '0.00';
+          if (ratioDisplay) ratioDisplay.style.color = '#6c757d';
+        }
+      }
+
+      if (fev1El && fvcEl) {
+        fev1El.addEventListener('input', calcRatio);
+        fvcEl.addEventListener('input', calcRatio);
+      }
+
+      // Toggle manual spirometry fields
+      if (useManualChk) {
+        useManualChk.addEventListener('change', () => {
+          if (manualFields) manualFields.style.display = useManualChk.checked ? 'block' : 'none';
+        });
+      }
+    });
+
+    // Called when user clicks Auto-Fetch Pollution button in sidebar
+    function autoFetchPollution() {
+      const lat = document.getElementById('lat').value;
+      const lon = document.getElementById('lon').value;
+      if (!lat || !lon) {
+        alert('Please provide both latitude and longitude. Use Get Location Now or Start Auto-Location to populate them.');
+        return;
+      }
+
+      // Prefer fetching via API and updating fields in-place (no full reload)
+      fetchPollutionViaApi(lat, lon)
+        .then(success => {
+          if (!success) {
+            // fallback: perform full page reload to let server fetch
+            const url = new URL(window.location.href);
+            url.searchParams.set('lat', lat);
+            url.searchParams.set('lon', lon);
+            document.querySelectorAll('input[name="feature_groups"]:checked').forEach(chk => {
+              url.searchParams.append('feature_groups', chk.value);
+            });
+            window.location.href = url.pathname + '?' + url.searchParams.toString();
+          }
+        });
+    }
+
+    // Fetch pollution via /pollution_api (returns JSON) and update fields; returns Promise<boolean>
+    function fetchPollutionViaApi(lat, lon) {
+      const sanitize = s => String(s || '').replace(/\u00B0/g, '').replace(/°/g, '').replace(/[^0-9\.\-\+eE]/g, '');
+      const lat_s = sanitize(lat);
+      const lon_s = sanitize(lon);
+      if (!lat_s || !lon_s) return Promise.resolve(false);
+
+      const url = `/pollution_api?lat=${encodeURIComponent(lat_s)}&lon=${encodeURIComponent(lon_s)}`;
+      return fetch(url).then(r => r.json()).then(json => {
+        if (json && json.success && json.data) {
+          const p = json.data;
+          if (document.getElementById('pm2_5')) document.getElementById('pm2_5').value = Math.round(p.pm2_5 * 100) / 100;
+          if (document.getElementById('pm10')) document.getElementById('pm10').value = Math.round(p.pm10 * 100) / 100;
+          if (document.getElementById('no2')) document.getElementById('no2').value = Math.round(p.no2 * 100) / 100;
+          if (document.getElementById('so2')) document.getElementById('so2').value = Math.round(p.so2 * 100) / 100;
+          if (document.getElementById('co')) document.getElementById('co').value = Math.round(p.co * 100) / 100;
+          if (document.getElementById('ozone')) document.getElementById('ozone').value = Math.round(p.ozone * 100) / 100;
+          return true;
+        }
+        return false;
+      }).catch(e => { console.warn('Pollution API fetch failed', e); return false; });
+    }
+
+    // Geolocation helpers: get GPS coords then update fields via API
+    function fetchAndUpdateWithGeolocation(){
+      if (!navigator.geolocation) {
+        alert('Geolocation is not supported by your browser. Please enter coordinates manually.');
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(function(position){
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        if (document.getElementById('lat')) document.getElementById('lat').value = String(lat);
+        if (document.getElementById('lon')) document.getElementById('lon').value = String(lon);
+        fetchPollutionViaApi(lat, lon).then(success => {
+          if (!success) alert('Failed to fetch pollution data from API');
+        });
+      }, function(err){
+        console.warn('Geolocation error:', err);
+        if (err.code === 1) alert('Location permission denied. Please allow location access.');
+        else alert('Unable to determine location. Please enter coordinates manually.');
+      }, { enableHighAccuracy: true, maximumAge: 60*1000, timeout: 10000 });
+    }
+
+    let autoLocationIntervalId = null;
+    function updateAutoLocButton(running){
+      const btn = document.getElementById('autoLocBtn');
+      const status = document.getElementById('autoLocStatus');
+      if (!btn) return;
+      if (running) {
+        btn.textContent = 'Stop Auto-Location';
+        btn.classList.remove('btn-outline-primary');
+        btn.classList.add('btn-danger');
+        if (status) status.textContent = 'Running (every 10 min)';
+      } else {
+        btn.textContent = 'Start Auto-Location';
+        btn.classList.remove('btn-danger');
+        btn.classList.add('btn-outline-primary');
+        if (status) status.textContent = 'Enter lat & lon, or use Get Location Now / Start Auto-Location.';
+      }
+    }
+
+    function startAutoLocation(){
+      fetchAndUpdateWithGeolocation();
+      autoLocationIntervalId = setInterval(fetchAndUpdateWithGeolocation, 10 * 60 * 1000);
+      updateAutoLocButton(true);
+    }
+
+    function stopAutoLocation(){
+      if (autoLocationIntervalId) { clearInterval(autoLocationIntervalId); autoLocationIntervalId = null; }
+      updateAutoLocButton(false);
+    }
+
+    function toggleAutoLocation(){ if (autoLocationIntervalId) stopAutoLocation(); else startAutoLocation(); }
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+
