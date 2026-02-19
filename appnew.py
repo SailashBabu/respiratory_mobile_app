@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 from flask import Flask, render_template_string, request, session, redirect, url_for, flash, get_flashed_messages, jsonify
 import sqlite3
 import hashlib
@@ -1920,6 +1920,286 @@ def logout():
     session.clear()
     flash("Logged out successfully", "success")
     return redirect(url_for('login'))
+
+# -------------------------
+# Simple JSON APIs for mobile app (login/register)
+# -------------------------
+
+@app.route('/api/login', methods=['POST'])
+def api_login():
+    """
+    JSON login endpoint for the mobile app.
+    Expects: { "username": "...", "password": "..." }
+    Returns: { "token": "...", "username": "...", "full_name": "..." }
+    """
+    try:
+        data = request.get_json() or {}
+        username = (data.get('username') or "").strip()
+        password = (data.get('password') or "").strip()
+
+        if not username or not password:
+            return jsonify({'error': 'Username and password required'}), 400
+
+        user = verify_user(username, password)
+        if not user:
+            return jsonify({'error': 'Invalid credentials'}), 401
+
+        # We are not validating this token on the server side for now.
+        # Mobile app just needs some token string to store.
+        token = f"token-{user[0]}"
+
+        return jsonify({
+            'token': token,
+            'username': user[1],
+            'full_name': user[2] or user[1]
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/register', methods=['POST'])
+def api_register():
+    """
+    JSON registration endpoint for the mobile app.
+    Expects: { "username": "...", "email": "...", "password": "...", "full_name": "..." }
+    """
+    try:
+        data = request.get_json() or {}
+        username = (data.get('username') or "").strip()
+        email = (data.get('email') or "").strip()
+        password = data.get('password') or ""
+        full_name = (data.get('full_name') or "").strip()
+
+        if not username or not email or not password:
+            return jsonify({'error': 'Username, email and password are required'}), 400
+        if len(password) < 6:
+            return jsonify({'error': 'Password must be at least 6 characters'}), 400
+        if not validate_email(email):
+            return jsonify({'error': 'Invalid email format'}), 400
+
+        ok, msg = register_user(username, password, email, full_name)
+        if not ok:
+            return jsonify({'error': msg}), 400
+
+        return jsonify({'message': 'Registration successful'}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/predict', methods=['POST'])
+def api_predict():
+    """
+    JSON prediction endpoint for mobile app.
+    Expects JSON with pollution data, optional manual spirometry, patient name.
+    Returns JSON with full prediction results including FEV1, FVC, Ratio, PEFR.
+    """
+    try:
+        # Get token from Authorization header
+        auth_header = request.headers.get('Authorization', '')
+        token = auth_header.replace('Bearer ', '').strip() if auth_header.startswith('Bearer ') else None
+        
+        if not token:
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        # Extract user_id from token (simple format: "token-<user_id>")
+        try:
+            user_id = int(token.replace('token-', ''))
+        except:
+            return jsonify({'error': 'Invalid token'}), 401
+        
+        # Get JSON data
+        data = request.get_json() or {}
+        
+        # Extract inputs with defaults
+        inputs = {
+            'age': int(data.get('age', 35)),
+            'gender': data.get('gender', 'Male'),
+            'location': data.get('location', 'Urban'),
+            'smoking_status': data.get('smoking_status', 'Non-smoker'),
+            'physical_activity': data.get('physical_activity', 'Moderate'),
+            'occupation': data.get('occupation', 'Office'),
+            'diet': data.get('diet', 'Balanced'),
+            'pm2_5': float(data.get('pm2_5', 50)),
+            'pm10': float(data.get('pm10', 80)),
+            'no2': float(data.get('no2', 30)),
+            'so2': float(data.get('so2', 10)),
+            'co': float(data.get('co', 1)),
+            'ozone': float(data.get('ozone', 40)),
+            'dust': float(data.get('dust', 60)),
+            'pollen': float(data.get('pollen', 40)),
+            'indoor_pollutants': float(data.get('indoor_pollutants', 5)),
+        }
+        
+        # Handle spirometry
+        use_manual = data.get('use_manual_spirometry', False)
+        predicted_spirometry = None
+        spirometry_source = "AI"
+        
+        if use_manual:
+            try:
+                manual_fev1 = float(data.get('fev1', 0))
+                manual_fvc = float(data.get('fvc', 0))
+                manual_pefr = float(data.get('pefr', 0))
+                manual_ratio = round((manual_fev1 / manual_fvc) if manual_fvc > 0 else 0.0, 3)
+                predicted_spirometry = {
+                    'fev1': manual_fev1,
+                    'fvc': manual_fvc,
+                    'ratio': manual_ratio,
+                    'pefr': manual_pefr
+                }
+                inputs['fev1'] = manual_fev1
+                inputs['fvc'] = manual_fvc
+                inputs['fev1_fvc_ratio'] = manual_ratio
+                inputs['pefr'] = manual_pefr
+                spirometry_source = "Manual"
+            except:
+                predicted_spirometry = predict_spirometry_from_pollution(inputs)
+                inputs['fev1'] = predicted_spirometry['fev1']
+                inputs['fvc'] = predicted_spirometry['fvc']
+                inputs['fev1_fvc_ratio'] = predicted_spirometry['ratio']
+                inputs['pefr'] = predicted_spirometry['pefr']
+                spirometry_source = "AI"
+        else:
+            predicted_spirometry = predict_spirometry_from_pollution(inputs)
+            inputs['fev1'] = predicted_spirometry['fev1']
+            inputs['fvc'] = predicted_spirometry['fvc']
+            inputs['fev1_fvc_ratio'] = predicted_spirometry['ratio']
+            inputs['pefr'] = predicted_spirometry['pefr']
+            spirometry_source = "AI"
+        
+        patient_name = data.get('patient_name', f"Patient_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        
+        # Calculate AQI
+        aqi_data = calculate_comprehensive_aqi(
+            inputs.get('pm2_5', 0), inputs.get('pm10', 0), inputs.get('no2', 0),
+            inputs.get('so2', 0), inputs.get('co', 0), inputs.get('ozone', 0)
+        )
+        
+        # Asthma ML prediction
+        asthma_pred, asthma_prob, priority_text, priority_level = predict_asthma_risk(
+            inputs.get('age', 35),
+            inputs.get('gender', 'Male'),
+            inputs.get('smoking_status', 'Non-smoker'),
+            inputs.get('pm2_5', 0),
+            inputs.get('dust', 0),
+            predicted_spirometry['fev1'],
+            predicted_spirometry['fvc'],
+            predicted_spirometry['pefr']
+        )
+        
+        # Determine risk level and color
+        if asthma_pred is not None:
+            ml_prediction = int(asthma_pred)
+            confidence = round(asthma_prob * 100, 1) if asthma_prob is not None else 0
+            
+            if ml_prediction == 1:
+                if priority_level == 2:
+                    severity_color = "#dc3545"
+                    risk_level = "High"
+                elif priority_level == 1:
+                    severity_color = "#fd7e14"
+                    risk_level = "Moderate"
+                else:
+                    severity_color = "#ffc107"
+                    risk_level = "Low-Moderate"
+            else:
+                severity_color = "#28a745"
+                risk_level = "Low"
+        else:
+            ml_prediction = "N/A"
+            confidence = "N/A"
+            severity_color = "#6c757d"
+            risk_level = priority_text
+        
+        # Generate AI recommendation
+        recommendation = generate_ai_recommendation(
+            patient_data=inputs,
+            priority_level=risk_level,
+            aqi_data=aqi_data,
+            spirometry_data=predicted_spirometry
+        )
+        
+        # Save prediction
+        save_prediction_record(
+            user_id, patient_name, inputs,
+            predicted_spirometry,
+            aqi_data['aqi_value'], aqi_data['aqi_category'],
+            ml_prediction, None,
+            ("Manual spirometry provided" if spirometry_source == 'Manual' else "Estimated spirometry from pollution"),
+            severity_color, risk_level, recommendation, spirometry_source
+        )
+        
+        # Return JSON result
+        return jsonify({
+            'success': True,
+            'ml_prediction': "Asthma Risk" if ml_prediction == 1 else "No Asthma Risk" if isinstance(ml_prediction, int) else ml_prediction,
+            'medical_prediction': priority_text if priority_text else "N/A",
+            'prediction_range': ("Manual spirometry provided" if spirometry_source == 'Manual' else "Estimated spirometry from pollution"),
+            'severity_color': severity_color,
+            'risk_level': risk_level,
+            'recommendation': recommendation,
+            'aqi_value': aqi_data['aqi_value'],
+            'aqi_category': aqi_data['aqi_category'],
+            'aqi_color': aqi_data['aqi_color'],
+            'primary_pollutant': aqi_data['primary_pollutant'],
+            'confidence': confidence,
+            'fev1': inputs['fev1'],
+            'fvc': inputs['fvc'],
+            'ratio': inputs['fev1_fvc_ratio'],
+            'pefr': inputs['pefr'],
+            'spirometry_source': spirometry_source,
+            'patient_name': patient_name,
+        }), 200
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/history', methods=['GET'])
+def api_history():
+    """
+    JSON history endpoint for mobile app.
+    Returns list of user's prediction records.
+    """
+    try:
+        # Get token from Authorization header
+        auth_header = request.headers.get('Authorization', '')
+        token = auth_header.replace('Bearer ', '').strip() if auth_header.startswith('Bearer ') else None
+        
+        if not token:
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        # Extract user_id from token
+        try:
+            user_id = int(token.replace('token-', ''))
+        except:
+            return jsonify({'error': 'Invalid token'}), 401
+        
+        records = get_user_predictions(user_id)
+        
+        # Convert to list of dictionaries
+        history_list = []
+        for record in records:
+            history_list.append({
+                'id': record[0],
+                'patient_name': record[1],
+                'ml_prediction': record[2],
+                'medical_prediction': record[3],
+                'prediction_range': record[4],
+                'severity_color': record[5],
+                'aqi_value': record[6],
+                'aqi_category': record[7],
+                'risk_level': record[8],
+                'prediction_date': record[9],
+                'spirometry_source': record[10],
+            })
+        
+        return jsonify({'records': history_list}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/predict', methods=['GET','POST'])
 def predict():

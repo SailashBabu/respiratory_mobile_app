@@ -1,11 +1,12 @@
 // src/api.js - API helper functions
 import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ⚠️ IMPORTANT: Change this to your Flask server IP address
 // For Android emulator: use http://10.0.2.2:5000
 // For iOS simulator: use http://localhost:5000
 // For physical device: use http://YOUR_COMPUTER_IP:5000 (e.g., http://192.168.1.5:5000)
-const API_BASE_URL = 'http://192.168.1.16:5000';
+const API_BASE_URL = 'http://172.20.10.10:5000';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -19,9 +20,13 @@ const api = axios.create({
 // Add token to requests if available
 api.interceptors.request.use(
   async (config) => {
-    const token = await require('@react-native-async-storage/async-storage').default.getItem('userToken');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    try {
+      const token = await AsyncStorage.getItem('userToken');
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    } catch (e) {
+      // ignore
     }
     return config;
   },
@@ -73,7 +78,7 @@ export async function apiRegister(data) {
 // Predict API
 export async function apiPredict(token, payload) {
   try {
-    const response = await api.post('/api/predict', payload, {
+    const response = await api.post('/predict', payload, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -93,7 +98,7 @@ export async function apiPredict(token, payload) {
 // History API
 export async function apiHistory(token) {
   try {
-    const response = await api.get('/api/history', {
+    const response = await api.get('/history', {
       headers: {
         Authorization: `Bearer ${token}`,
       },
