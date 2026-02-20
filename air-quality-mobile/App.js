@@ -17,7 +17,7 @@ import {
 import * as Location from 'expo-location';
 
 // API base URL - change to your computer's IP (same WiFi as phone)
-const API_BASE = 'http://172.20.10.10:5000';
+const API_BASE = 'http://192.168.1.8:5000';
 
 // Safe storage
 let _token = null;
