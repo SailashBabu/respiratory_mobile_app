@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // For Android emulator: use http://10.0.2.2:5000
 // For iOS simulator: use http://localhost:5000
 // For physical device: use http://YOUR_COMPUTER_IP:5000 (e.g., http://192.168.1.5:5000)
-const API_BASE_URL = 'http:// 192.168.1.8:5000';
+const API_BASE_URL = 'http://10.38.119.252:5000';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -132,6 +132,34 @@ export async function apiPollution(lat, lon) {
       throw new Error('Network error. Check if Flask server is running.');
     } else {
       throw new Error('Pollution API request failed');
+    }
+  }
+}
+
+// Upload Spirometry Report (PDF/DOC/Image) for auto-extraction
+export async function apiUploadSpirometry(fileUri, fileName, mimeType) {
+  const formData = new FormData();
+
+  formData.append('file', {
+    uri: fileUri,
+    name: fileName || 'spirometry_report',
+    type: mimeType || 'application/octet-stream',
+  });
+
+  try {
+    const response = await api.post('/upload_spirometry', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  } catch (error) {
+    if (error.response) {
+      throw new Error(error.response.data.error || 'Failed to upload spirometry report');
+    } else if (error.request) {
+      throw new Error('Network error. Check if Flask server is running.');
+    } else {
+      throw new Error('Spirometry upload request failed');
     }
   }
 }

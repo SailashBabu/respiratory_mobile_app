@@ -15,9 +15,10 @@ import {
   Switch,
 } from 'react-native';
 import * as Location from 'expo-location';
+import * as DocumentPicker from 'expo-document-picker';
 
 // API base URL - change to your computer's IP (same WiFi as phone)
-const API_BASE = 'http://192.168.1.8:5000';
+const API_BASE = 'http://10.38.119.252:5000';
 
 // Safe storage
 let _token = null;
@@ -132,6 +133,8 @@ export default function App() {
   const [locationLoading, setLocationLoading] = useState(false);
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [selectedFileName, setSelectedFileName] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -202,6 +205,83 @@ export default function App() {
     _token = null;
     setUser(null);
     setScreen('login');
+  };
+
+  const handleUploadSpirometry = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [
+          'application/pdf',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'image/*',
+        ],
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || result.type === 'cancel') {
+        return;
+      }
+
+      const asset = result.assets ? result.assets[0] : result;
+      const uri = asset.uri;
+      const name = asset.name || 'spirometry_report';
+      const mimeType =
+        asset.mimeType ||
+        (name.toLowerCase().endsWith('.pdf')
+          ? 'application/pdf'
+          : name.toLowerCase().endsWith('.docx')
+          ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          : 'application/octet-stream');
+
+      if (!uri) {
+        Alert.alert('Error', 'Could not read selected file');
+        return;
+      }
+
+      setUploading(true);
+      setSelectedFileName(name);
+
+      const formData = new FormData();
+      formData.append('file', {
+        uri,
+        name,
+        type: mimeType,
+      });
+
+      const res = await fetch(`${API_BASE}/upload_spirometry`, {
+        method: 'POST',
+        headers: {
+          // Do not set Content-Type manually for FormData in React Native
+          ...(_token ? { Authorization: `Bearer ${_token}` } : {}),
+        },
+        body: formData,
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data && data.error) || 'Upload failed');
+      }
+
+      if (data.success && data.data) {
+        const { fev1: fev1Val, fvc: fvcVal, pefr: pefrVal } = data.data;
+
+        if (fev1Val != null || fvcVal != null || pefrVal != null) {
+          setUseManualSpirometry(true);
+          if (fev1Val != null) setFev1(String(fev1Val));
+          if (fvcVal != null) setFvc(String(fvcVal));
+          if (pefrVal != null) setPefr(String(pefrVal));
+          Alert.alert('Success', 'Spirometry values extracted from report.');
+        } else {
+          Alert.alert('Info', 'Could not extract spirometry values from the uploaded file.');
+        }
+      } else {
+        Alert.alert('Upload Failed', (data && data.error) || 'Server did not return extracted values.');
+      }
+    } catch (e) {
+      Alert.alert('Upload Failed', e.message || 'Failed to upload spirometry report.');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const fetchLocationAndPollution = async () => {
@@ -477,6 +557,19 @@ export default function App() {
         </View>
       )}
 
+      <View style={s.uploadSection}>
+        <Text style={s.label}>Upload Spirometry Report (PDF/DOC/Image)</Text>
+        <TouchableOpacity style={s.uploadBtn} onPress={handleUploadSpirometry} disabled={uploading}>
+          {uploading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={s.uploadBtnText}>
+              {selectedFileName ? `Uploaded: ${selectedFileName}` : '📄 Choose File & Auto-Fill'}
+            </Text>
+          )}
+        </TouchableOpacity>
+      </View>
+
       {/* Patient Name */}
       <Text style={s.sectionTitle}>📋 Patient Information</Text>
       <TextInput style={s.input} placeholder="Patient name" value={patientName} onChangeText={setPatientName} />
@@ -574,4 +667,7 @@ const s = StyleSheet.create({
   riskBadge: { borderRadius: 8, padding: 12, alignItems: 'center', marginVertical: 8 },
   riskBadgeText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   recommendationText: { fontSize: 14, color: '#333', lineHeight: 20, marginTop: 4 },
+  uploadSection: { marginTop: 8, marginBottom: 12 },
+  uploadBtn: { backgroundColor: '#ff7e5f', borderRadius: 10, padding: 12, alignItems: 'center', marginTop: 4 },
+  uploadBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
 });

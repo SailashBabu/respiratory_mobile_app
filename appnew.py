@@ -10,6 +10,11 @@ import os
 import numpy as np
 import random
 import joblib
+import pytesseract
+from PIL import Image
+import pdfplumber
+from docx import Document
+import tempfile
 try:
     import google.generativeai as genai
     GENAI_AVAILABLE = True
@@ -214,6 +219,83 @@ def verify_user(username, password):
     print("="*60 + "\n")
     
     return user
+
+
+# ---------------------------
+# File Upload Feature using tesseract
+#-------------------------------
+
+def extract_text_from_file(file_path, file_ext):
+    text = ""
+
+    try:
+        if file_ext == ".pdf":
+            with pdfplumber.open(file_path) as pdf:
+                for page in pdf.pages:
+                    text += page.extract_text() or ""
+
+        elif file_ext in [".docx"]:
+            doc = Document(file_path)
+            for para in doc.paragraphs:
+                text += para.text + "\n"
+
+        elif file_ext in [".png", ".jpg", ".jpeg"]:
+            image = Image.open(file_path)
+            text = pytesseract.image_to_string(image)
+
+    except Exception as e:
+        print("OCR Extraction Error:", e)
+
+    return text
+def extract_spirometry_values(text):
+    result = {"fev1": None, "fvc": None, "pefr": None}
+
+    try:
+        # Extract POST column (4th numeric value in row)
+
+        fvc_match = re.search(r'FVC\s*\[L\].*?(\d+\.\d+)\s+(\d+\.\d+)\s+\d+\s*%?\s+(\d+\.\d+)', text)
+        fev1_match = re.search(r'FEV\s*1\s*\[L\].*?(\d+\.\d+)\s+(\d+\.\d+)\s+\d+\s*%?\s+(\d+\.\d+)', text)
+        pef_match = re.search(r'PEF\s*\[L/s\].*?(\d+\.\d+)\s+(\d+\.\d+)\s+\d+\s*%?\s+(\d+\.\d+)', text)
+
+        if fvc_match:
+            result["fvc"] = float(fvc_match.group(3))  # POST value
+
+        if fev1_match:
+            result["fev1"] = float(fev1_match.group(3))  # POST value
+
+        if pef_match:
+            pef_lps = float(pef_match.group(3))  # POST value in L/s
+            result["pefr"] = round(pef_lps * 60, 1)  # Convert to L/min
+
+    except Exception as e:
+        print("Extraction error:", e)
+
+    return result
+@app.route('/upload_spirometry', methods=['POST'])
+def upload_spirometry():
+    if 'file' not in request.files:
+        return jsonify({"success": False, "error": "No file uploaded"})
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"success": False, "error": "Empty filename"})
+
+    ext = os.path.splitext(file.filename)[1].lower()
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+        file.save(tmp.name)
+        file_path = tmp.name
+
+    text = extract_text_from_file(file_path, ext)
+    values = extract_spirometry_values(text)
+
+    os.remove(file_path)
+
+    return jsonify({
+        "success": True,
+        "data": values
+    })
+
 
 # -------------------------
 # Prediction storage
@@ -1488,6 +1570,13 @@ PREDICT_HTML = r"""
                   <input type="number" step="0.1" class="form-control" name="dust" placeholder="e.g. 60.0" value="60.0">
                 </div>
               </div>
+              <div class="mt-3">
+                    <label class="form-label">Upload Spirometry Report (PDF/DOC/Image)</label>
+                    <input type="file" id="spirometryFile" class="form-control">
+                    <button type="button" class="btn btn-success mt-2" onclick="uploadSpirometryFile()">
+                      Upload & Auto-Fill
+                    </button>
+              </div>
               <div class="form-check mt-2">
                 <input class="form-check-input" type="checkbox" id="useManualSpirometry" name="use_manual_spirometry">
                 <label class="form-check-label" for="useManualSpirometry">
@@ -1519,6 +1608,44 @@ PREDICT_HTML = r"""
 
 <!-- ================= SCRIPTS ================= -->
 <script>
+
+function uploadSpirometryFile() {
+          const fileInput = document.getElementById('spirometryFile');
+          const file = fileInput.files[0];
+
+          if (!file) {
+              alert("Please select a file");
+              return;
+          }
+
+          const formData = new FormData();
+          formData.append("file", file);
+
+          fetch("/upload_spirometry", {
+              method: "POST",
+              body: formData
+          })
+          .then(res => res.json())
+          .then(data => {
+              if (data.success) {
+                  const values = data.data;
+
+                  if (values.fev1) 
+                      document.querySelector('[name="fev1"]').value = values.fev1;
+
+                  if (values.fvc) 
+                      document.querySelector('[name="fvc"]').value = values.fvc;
+
+                  if (values.pefr) 
+                      document.querySelector('[name="pefr"]').value = values.pefr;
+
+                  alert("Spirometry values auto-filled successfully!");
+              } else {
+                  alert("Extraction failed: " + data.error);
+              }
+          })
+          .catch(err => alert("Upload failed: " + err));
+      }
 const pollution = {{ pollution | tojson | default('null') }};
 
 // Using GPS or manual lat/lon only; city-based lookup removed.

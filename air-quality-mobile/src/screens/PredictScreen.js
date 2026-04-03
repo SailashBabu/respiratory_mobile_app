@@ -12,8 +12,9 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import * as Location from 'expo-location';
+import * as DocumentPicker from 'expo-document-picker';
 import { useAuth } from '../../App';
-import { apiPollution, apiPredict } from '../api';
+import { apiPollution, apiPredict, apiUploadSpirometry } from '../api';
 
 export default function PredictScreen({ navigation }) {
   const { user } = useAuth();
@@ -36,6 +37,8 @@ export default function PredictScreen({ navigation }) {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [fetchingLocation, setFetchingLocation] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [selectedFileName, setSelectedFileName] = useState('');
 
   const handleGetLocation = async () => {
     try {
@@ -77,6 +80,64 @@ export default function PredictScreen({ navigation }) {
       Alert.alert('Error', error.message || 'Failed to get location or fetch pollution data');
     } finally {
       setFetchingLocation(false);
+    }
+  };
+
+  const handleUploadSpirometry = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [
+          'application/pdf',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'image/*',
+        ],
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || result.type === 'cancel') {
+        return;
+      }
+
+      const asset = result.assets ? result.assets[0] : result;
+      const uri = asset.uri;
+      const name = asset.name || 'spirometry_report';
+      const mimeType =
+        asset.mimeType ||
+        (name.toLowerCase().endsWith('.pdf')
+          ? 'application/pdf'
+          : name.toLowerCase().endsWith('.docx')
+          ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          : 'application/octet-stream');
+
+      if (!uri) {
+        Alert.alert('Error', 'Could not read selected file');
+        return;
+      }
+
+      setUploading(true);
+      setSelectedFileName(name);
+
+      const data = await apiUploadSpirometry(uri, name, mimeType);
+
+      if (data.success && data.data) {
+        const { fev1: fev1Val, fvc: fvcVal, pefr: pefrVal } = data.data;
+
+        if (fev1Val != null || fvcVal != null || pefrVal != null) {
+          setUseManualSpirometry(true);
+          if (fev1Val != null) setFev1(String(fev1Val));
+          if (fvcVal != null) setFvc(String(fvcVal));
+          if (pefrVal != null) setPefr(String(pefrVal));
+          Alert.alert('Success', 'Spirometry values extracted from report.');
+        } else {
+          Alert.alert('Info', 'Could not extract spirometry values from the uploaded file.');
+        }
+      } else {
+        Alert.alert('Upload Failed', data.error || 'Server did not return extracted values.');
+      }
+    } catch (error) {
+      Alert.alert('Upload Failed', error.message || 'Failed to upload spirometry report.');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -269,6 +330,25 @@ export default function PredictScreen({ navigation }) {
             </View>
           </View>
         )}
+
+        <View style={styles.uploadSection}>
+          <Text style={styles.label}>Upload Spirometry Report (PDF/DOC/Image)</Text>
+          <TouchableOpacity
+            style={[styles.uploadButton, uploading && styles.buttonDisabled]}
+            onPress={handleUploadSpirometry}
+            disabled={uploading}
+          >
+            {uploading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.uploadButtonText}>
+                {selectedFileName
+                  ? `Uploaded: ${selectedFileName}`
+                  : '📄 Choose File & Auto-Fill'}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
 
         <Text style={styles.label}>Dust Level (μg/m³)</Text>
         <TextInput
@@ -553,5 +633,22 @@ const styles = StyleSheet.create({
     color: '#333',
     lineHeight: 20,
     marginTop: 4,
+  },
+  uploadSection: {
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  uploadButton: {
+    backgroundColor: '#ff7e5f',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  uploadButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
